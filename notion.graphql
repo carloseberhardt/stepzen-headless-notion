@@ -1,0 +1,282 @@
+"""
+The Content and Block types are used to retrieve markdown content for a Page in Notion.
+"""
+type Content {
+  markdown: String
+  blocks: [Block]
+}
+type Block {
+  id: ID
+  hasChildren: Boolean
+  content: String
+}
+"""
+These types were auto-generated via StepZen's GraphQL schema generator, using `stepzen import curl` and then edited.
+"""
+type Annotations {
+  bold: Boolean
+  code: Boolean
+  color: String
+  italic: Boolean
+  strikethrough: Boolean
+  underline: Boolean
+}
+type Author {
+  id: String
+  people: [PeopleEntry]
+  type: String
+}
+type Created {
+  created_time: DateTime
+  id: String
+  type: String
+}
+type CreatedBy {
+  id: String
+  object: String
+}
+type LastEditedBy {
+  id: String
+  object: String
+}
+type MultiSelectEntry {
+  color: String
+  id: String
+  name: String
+}
+type Name {
+  id: String
+  title: [TitleEntry]
+  type: String
+}
+type Parent {
+  database_id: String
+  type: String
+}
+type PeopleEntry {
+  id: String
+  object: String
+  user: User @materializer(query: "user")
+}
+type Properties {
+  Author: Author
+  Created: Created
+  Name: Name
+  Publish: Publish
+  Tags: Tags
+}
+type Publish {
+  checkbox: Boolean
+  id: String
+  type: String
+}
+type Page {
+  archived: Boolean
+  cover: JSON
+  created_by: CreatedBy
+  created_time: DateTime
+  icon: JSON
+  id: String
+  last_edited_by: LastEditedBy
+  last_edited_time: DateTime
+  object: String
+  parent: Parent
+  properties: Properties
+  url: String
+  content: Content
+    @materializer(
+      query: "content"
+      arguments: [{ name: "parentId", field: "id" }]
+    )
+}
+type Tags {
+  id: String
+  multi_select: [MultiSelectEntry]
+  type: String
+}
+type Text {
+  content: String
+  link: JSON
+}
+type TitleEntry {
+  annotations: Annotations
+  href: JSON
+  plain_text: String
+  text: Text
+  type: String
+}
+type User {
+  object: String
+  id: ID
+  name: String
+  avatar_url: String
+  type: String
+  person: Person
+}
+type Person {
+  email: String
+}
+
+type PageConnection {
+  edges: [PageEdge]
+  pageInfo: PageInfo!
+}
+type PageEdge {
+  cursor: String!
+  node: Page
+}
+
+extend type Query {
+  """
+  Get a user by id
+  """
+  user(id: ID!): User
+    @rest(
+      endpoint: "https://api.notion.com/v1/users/$id;"
+      headers: [
+        { name: "authorization", value: "Bearer $apikey;" }
+        { name: "notion-version", value: "2022-06-28" }
+      ]
+      configuration: "notion"
+    )
+  """
+  Get a page by id
+  """
+  page(id: ID!): Page
+    @rest(
+      endpoint: "https://api.notion.com/v1/pages/$id;"
+      headers: [
+        { name: "authorization", value: "Bearer $apikey;" }
+        { name: "notion-version", value: "2022-06-28" }
+      ]
+      configuration: "notion"
+    )
+  """
+  Get pages given optional filter and sort criteria. Defaults to first 100 pages.
+  """
+  pages(
+    first: Int! = 100
+    after: String
+    """ A valid Notion filter. See https://developers.notion.com/reference/post-database-query-filter """
+    filter: JSON
+    """ A valid Notion sort. See https://developers.notion.com/reference/post-database-query-sort """
+    sorts: JSON
+  ): PageConnection
+    @rest(
+      endpoint: "https://api.notion.com/v1/databases/$dbid;/query"
+      method: POST
+      headers: [
+        { name: "authorization", value: "Bearer $apikey;" }
+        { name: "notion-version", value: "2022-06-28" }
+      ]
+      arguments: [{name: "page_size", argument: "first"}{name: "start_cursor", argument: "after"}]
+      pagination: { type: NEXT_CURSOR 
+      setters: [{field:"nextCursor", path:"next_cursor"}]}
+      resultroot: "results[]"
+      configuration: "notion"
+    )
+  """
+  Get block content as markdown for a block id (typically a page id)
+  """
+  content(parentId: ID!): Content
+    @rest(
+      endpoint: "https://api.notion.com/v1/blocks/$parentId/children"
+      configuration: "notion"
+      headers: [
+        { name: "Authorization", value: "Bearer $apikey;" }
+        { name: "Notion-Version", value: "2022-06-28" }
+      ]
+      transforms: [
+        {
+          editor: """
+          jsonata:
+          (
+              $markdowntext := function($text, $annotations) {(
+                  $out := $text.content;
+                  $annotations.bold = true ? $out := $join(["**", $out, "**"]);
+                  $annotations.italic = true ? $out := $join(["*", $out, "*"]);
+                  $annotations.strikethrough = true ? $out := $join(["~~", $out, "~~"]);
+                  $annotations.underline = true ? $out := $join(["<ins>", $out, "</ins>"]);
+                  $annotations.code = true ? $out := $join(["`", $out, "`"]);
+                  $text.link ? $join(["[", $out, "](", $text.link.url, ")"]) : $out;
+              )};
+              $markdowmimage := function($item) {(
+                  $item.caption ?
+                  $join(["![", $item.caption.plain_text, "](", $item.external.url, " \"", $item.caption.plain_text, "\")"]) :
+                  $join(["![](", $item.external.url, ")"])
+              )};
+              $richText := function($item) {(
+                  $map($item, function($i) {(
+                      $markdowntext($i.text, $i.annotations);
+                  )})
+              )};
+              $makeObject := function($item, $content) {(
+                  $content ? $c := $content : $c := "";
+                  {"id": $item.id, "content": $c, "hasChildren": $item.has_children}
+              )};
+              $heading1 := function($item) {(
+                  $join($append("# ", $richText($item.heading_1.rich_text)))
+              )};
+              $heading2 := function($item) {(
+                  $join($append("## ", $richText($item.heading_2.rich_text)))
+              )};
+              $heading3 := function($item) {(
+                  $join($append("### ", $richText($item.heading_3.rich_text)))
+              )};
+              $paragraph := function($item) {(
+                  $join($richText($item.paragraph.rich_text))
+              )};
+              $quote := function($item) {(
+                  $join($append("> ", $richText($item.quote.rich_text)))
+              )};
+              $code := function($item) {(
+                  $join(["```", $item.code.language,"\n",$item.code.rich_text.plain_text,"\n","````"])
+              )};
+              $image := function($item) {(
+                  $item.image.type = "file" ? "<!-- file image types are not supported -->" :
+                  $item.image.type = "external" ? $markdowmimage($item.image)
+              )};
+              $numberedList := function($item) {(
+                  $join($append("1. ", $richText($item.numbered_list_item.rich_text)))
+              )};
+              $bulletedList := function($item) {(
+                  $join($append("- ", $richText($item.bulleted_list_item.rich_text)))
+              )};
+              $columnList := function($item) {(
+                  $item.column_list.column_list
+              )};
+              $blocks := $map(results, function($item){
+                  $item.type = "heading_1" ?
+                      $makeObject($item,$heading1($item)) :
+                  $item.type = "heading_2" ?
+                      $makeObject($item, $heading2($item)) :
+                  $item.type = "heading_3" ?
+                      $makeObject($item, $heading3($item)) :
+                  $item.type = "paragraph" ?
+                      $makeObject($item, $paragraph($item)) :
+                  $item.type = "quote" ?
+                      $makeObject($item, $quote($item)) :
+                  $item.type = "numbered_list_item" ?
+                      $makeObject($item, $numberedList($item)) :
+                  $item.type = "bulleted_list_item" ?
+                      $makeObject($item, $bulletedList($item)) :
+                  $item.type = "code" ?
+                      $makeObject($item, $code($item)) :
+                  $item.type = "image" ?
+                      $makeObject($item, $image($item)) :
+                  $item.type = "divider" ?
+                      $makeObject($item, "---") :
+                  $item.type = "column_list" ?
+                      $makeObject($item, $columnList($item)):
+                  $item
+              });
+              {
+                "blocks": $blocks,
+                "markdown":$join($blocks.content, "\n")
+              }
+          )
+          """
+        }
+      ]
+    )
+}
