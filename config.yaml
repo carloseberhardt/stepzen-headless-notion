@@ -3,4 +3,4 @@ configurationset:
       name: notion
       apikey: STEPZEN_NOTION_KEY
       dbid: STEPZEN_NOTION_DB_ID
-      stepzen.queryextensionguard: true
+      stepzen.queryextensionguard: "true"

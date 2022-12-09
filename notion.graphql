@@ -54,9 +54,12 @@ type Parent {
   type: String
 }
 type PeopleEntry {
+  avatar_url: String
   id: String
+  name: String
   object: String
-  user: User @materializer(query: "user")
+  person: Person
+  type: String
 }
 type Properties {
   Author: Author
@@ -83,11 +86,6 @@ type Page {
   parent: Parent
   properties: Properties
   url: String
-  content: Content
-    @materializer(
-      query: "content"
-      arguments: [{ name: "parentId", field: "id" }]
-    )
 }
 type Tags {
   id: String
@@ -105,14 +103,6 @@ type TitleEntry {
   text: Text
   type: String
 }
-type User {
-  object: String
-  id: ID
-  name: String
-  avatar_url: String
-  type: String
-  person: Person
-}
 type Person {
   email: String
 }
@@ -126,31 +116,15 @@ type PageEdge {
   node: Page
 }
 
+extend type Page {
+    content: Content
+    @materializer(
+      query: "content"
+      arguments: [{ name: "parentId", field: "id" }]
+    )
+}
+
 extend type Query {
-  """
-  Get a user by id
-  """
-  user(id: ID!): User
-    @rest(
-      endpoint: "https://api.notion.com/v1/users/$id;"
-      headers: [
-        { name: "authorization", value: "Bearer $apikey;" }
-        { name: "notion-version", value: "2022-06-28" }
-      ]
-      configuration: "notion"
-    )
-  """
-  Get a page by id
-  """
-  page(id: ID!): Page
-    @rest(
-      endpoint: "https://api.notion.com/v1/pages/$id;"
-      headers: [
-        { name: "authorization", value: "Bearer $apikey;" }
-        { name: "notion-version", value: "2022-06-28" }
-      ]
-      configuration: "notion"
-    )
   """
   Get pages given optional filter and sort criteria. Defaults to first 100 pages.
   """
